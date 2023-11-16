@@ -1,0 +1,80 @@
+<!doctype html>
+<html lang="en">
+
+<head>
+	<meta charset="utf-8">
+	<meta name="viewport" content="width=device-width, initial-scale=1">
+	<title></title>
+	<script>
+		const endpoint = "localhost:5000"
+		const ws = new WebSocket("ws://" + endpoint)
+
+		const onReceiveMessage = (event) => {
+			const chatArea = document.querySelector("#chat")
+			message = event.data
+			chatArea.value += `Anon: ${message}\n`
+		}
+
+		const onSendMessage = (ev) => {
+			ev.preventDefault()
+			ev.stopPropagation()
+			const input = document.querySelector("#msgbox")
+			const chatArea = document.querySelector("#chat")
+
+			const message = input.value
+			chatArea.value += `Anon: ${message}\n`
+			ws.send(message)
+			input.value = ""
+			return false
+		}
+
+		window.addEventListener("load", () => {
+			const form = document.querySelector("#sendmessage")
+			form.addEventListener("submit", onSendMessage)
+		})
+
+		ws.addEventListener("message", onReceiveMessage)
+	</script>
+	<style>
+		html,
+		body {
+			margin: 0;
+			border: 0;
+			width: 100%;
+		}
+
+		body {
+			display: flex;
+			justify-content: center;
+			height: 100vh;
+			padding: 1rem;
+		}
+
+		.container {
+			width: 66%;
+			display: flex;
+			flex-direction: column;
+			height: 90%;
+			gap: 1rem;
+		}
+
+		#sendmessage {
+			display: flex;
+			gap: 1rem;
+		}
+	</style>
+</head>
+
+<body>
+	<!-- i.e. a container -->
+	<div class="container">
+		<textarea id="chat" rows="" cols="" style="flex-grow: 1; width: 100%;" readonly></textarea>
+		<form id="sendmessage">
+			<input type="text" name="" id="msgbox" value="" style="width: 100%;">
+			<input type="submit"></input>
+		</form>
+
+	</div>
+</body>
+
+</html>
