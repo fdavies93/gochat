@@ -36,7 +36,7 @@ func monitorReads(manager ConnectionManager, connId int) {
 }
 
 func broadcast(manager ConnectionManager, msg []byte) {
-	for _, conn := range manager.connections {
+	for i, conn := range manager.connections {
 		writeToConnection(msg, conn)
 	}
 }
@@ -66,7 +66,21 @@ func monitorWrites(manager ConnectionManager) {
 	}
 }
 
-func serve(manager ConnectionManager, writer http.ResponseWriter, request *http.Request) {
+func serveHome(w http.ResponseWriter, r *http.Request) {
+	log.Println(r.URL)
+	if r.URL.Path != "/" {
+		http.Error(w, "Not found", http.StatusNotFound)
+		return
+	}
+	if r.Method != http.MethodGet {
+		http.Error(w, "Method not allowed", http.StatusMethodNotAllowed)
+		return
+	}
+	http.ServeFile(w, r, "index.html")
+}
+
+
+func serve(manager *ConnectionManager, writer http.ResponseWriter, request *http.Request) {
 	conn, err := upgrader.Upgrade(writer, request, nil)
 	if err != nil {
 		log.Println(err)
@@ -74,7 +88,7 @@ func serve(manager ConnectionManager, writer http.ResponseWriter, request *http.
 	}
 	manager.connections[manager.nextId] = conn
 	// Reads and writes need to be two separate goroutines as they're both blocking
-	go monitorReads(manager, manager.nextId)
+	go monitorReads(*manager, manager.nextId)
 	manager.nextId += 1
 }
 
@@ -88,7 +102,7 @@ func main() {
 	// server responds with a 101 (change protocol)
 	// - and registers client / connection
 	// - the library handles this, but likely relevant for re-implementing in C
-
+	
 	manager := ConnectionManager{
 		make(map[int]*websocket.Conn),
 		0,
@@ -98,8 +112,10 @@ func main() {
 	log.Println("Starting websockets server...")
 	go monitorWrites(manager)
 
+	http.HandleFunc("/", serveHome)
+
 	http.HandleFunc("/ws", func(writer http.ResponseWriter, request *http.Request) {
-		serve(manager, writer, request)
+		serve(&manager, writer, request)
 		// setup the websocket
 	})
 

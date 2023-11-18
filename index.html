@@ -6,7 +6,7 @@
 	<meta name="viewport" content="width=device-width, initial-scale=1">
 	<title></title>
 	<script>
-		const endpoint = "localhost:5000"
+		const endpoint = "localhost:8080/ws"
 		const ws = new WebSocket("ws://" + endpoint)
 
 		const onReceiveMessage = (event) => {
@@ -22,7 +22,6 @@
 			const chatArea = document.querySelector("#chat")
 
 			const message = input.value
-			chatArea.value += `Anon: ${message}\n`
 			ws.send(message)
 			input.value = ""
 			return false
