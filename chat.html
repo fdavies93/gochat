@@ -1,0 +1,90 @@
+<!doctype html>
+<html lang="en">
+
+<head>
+	<meta charset="utf-8">
+	<meta name="viewport" content="width=device-width, initial-scale=1">
+	<title></title>
+	<script src="https://cdn.tailwindcss.com"></script>
+	<script>
+		const endpoint = "localhost:8080/ws"
+		const ws = new WebSocket("ws://" + endpoint)
+		const params = new URLSearchParams(window.location.search)
+
+		const username = params.get("user")
+		const room = params.get("room")
+
+		const appendMessage = (msg) => {
+			const messageArea = document.querySelector("[data-message-area]")
+			const newMessage = `
+				<div class="flex flex-col w-full">
+					<div class="text-blue-500">${msg.Data.sender}</div>
+					<div>${msg.Data.message}</div>
+				</div>
+			`
+			messageArea.insertAdjacentHTML("beforeend", newMessage)
+			messageArea.scrollTop = messageArea.scrollHeight
+		}
+
+		const onReceiveMessage = (event) => {
+			message = event.data
+			const msgObj = JSON.parse(message)
+			appendMessage(msgObj)
+		}
+
+		const onSendMessage = (ev) => {
+			ev.preventDefault()
+			ev.stopPropagation()
+			const input = document.querySelector("#msgbox")
+
+			const message = JSON.stringify({
+				"MsgType": "message",
+				"Data": {
+					"sender": username,
+					"room": room,
+					"message": input.value
+				}
+			})
+			ws.send(message)
+			input.value = ""
+			return false
+		}
+
+		const onOpen = (event) => {
+			const params = new URLSearchParams(window.location.search)
+			const header = {
+				"msgType": "setup",
+				"data": {
+					"user": username,
+					"room": room
+
+				}
+			}
+			ws.send(JSON.stringify(header))
+		}
+
+		window.addEventListener("load", () => {
+			const form = document.querySelector("#sendmessage")
+			form.addEventListener("submit", onSendMessage)
+		})
+
+		ws.addEventListener("message", onReceiveMessage)
+		ws.addEventListener("open", onOpen)
+	</script>
+</head>
+
+<body>
+	<!-- i.e. a container -->
+	<div class="w-full flex flex-col h-screen items-center">
+		<!-- Message area -->
+		<div data-message-area class="w-full h-full overflow-scroll px-2">
+		</div>
+		<form class="w-full flex gap-4 bg-gray-200 border-t-2 border-black p-4" id="sendmessage">
+			<input type="text" name="" id="msgbox" class="py-1 px-2 border-black border-2 rounded-lg" value="" style="width: 100%;">
+			<input type="submit" class="bg-black text-white rounded-lg px-2 py-1"></input>
+		</form>
+
+	</div>
+</body>
+
+</html>

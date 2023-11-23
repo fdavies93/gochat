@@ -1,11 +1,14 @@
 package main
 
 import (
+	"encoding/json"
 	"flag"
 	"github.com/gorilla/websocket"
 	"log"
 	"net/http"
 	"time"
+	"fmt"
+	"strconv"
 )
 
 var addr = flag.String("addr", ":8080", "The inbound http port")
@@ -15,13 +18,52 @@ var upgrader = websocket.Upgrader{
 	WriteBufferSize: 1024,
 }
 
-type ConnectionManager struct {
-	connections   map[int]*websocket.Conn
-	nextId        int
-	broadcastChan chan []byte
+type Client struct {
+	id int
+	connection *websocket.Conn
+	username   string
+	room       string
 }
 
-func monitorReads(manager ConnectionManager, connId int) {
+type Room struct {
+	id            int
+	name          string
+	broadcastChan chan []byte
+	// each Room needs a monitorWrites method
+}
+
+type ClientMessage struct {
+	MsgType string
+	Data     map[string]string
+}
+
+type ServerMessage struct {
+	MsgType string
+	Data map[string]string
+}
+
+type ConnectionManager struct {
+	// monitor clients and direct writes to the appropriate room(s)
+	clients       map[int]*Client
+	connections   map[int]*websocket.Conn
+	nextClient    int
+	broadcastChan chan []byte
+	rooms         map[int]*Room
+	nextRoom      int
+}
+
+func makeConnectionManager() *ConnectionManager {
+	return &ConnectionManager{
+		make(map[int]*Client),
+		make(map[int]*websocket.Conn),
+		0,
+		make(chan []byte, 256),
+		make(map[int]*Room),
+		0,
+	}
+}
+
+func monitorReads(manager *ConnectionManager, connId int) {
 	log.Println("Starting goroutine monitorReads")
 
 	// on receive, broadcast it to all connections
@@ -30,15 +72,69 @@ func monitorReads(manager ConnectionManager, connId int) {
 		if err != nil {
 			break
 		}
-		manager.broadcastChan <- message
+		var msgObj ClientMessage
+		err2 := json.Unmarshal([]byte(message), &msgObj)
+		if err2 != nil {
+			break
+		}
+
+		log.Println(msgObj)
+		// could implement UnmarshalJSON interface to make this unpack to nicer structs
+		if msgObj.MsgType == "setup" {
+			// do setup stuff
+			manager.clients[connId].username = msgObj.Data["user"]
+			manager.clients[connId].room = msgObj.Data["room"]
+
+			messageData := ServerMessage{
+				MsgType: "pm",
+				Data: map[string]string {
+					"id": fmt.Sprint(connId),
+					"sender": "SERVER",
+					"message": fmt.Sprintf("Welcome to #%s, %s!", msgObj.Data["room"], msgObj.Data["user"]),
+				},
+			}
+
+			toSend, _ := json.Marshal(messageData)
+
+			manager.broadcastChan <- toSend
+
+		} else if msgObj.MsgType == "message" {
+			// broadcast
+			log.Println("Message received") 
+			
+			serve := ServerMessage{
+				MsgType: "local",
+				Data: map[string]string {
+					"room": msgObj.Data["room"],
+					"sender": msgObj.Data["sender"],
+					"message": msgObj.Data["message"],
+				},
+			}
+			serveStr, _ := json.Marshal(serve)
+			manager.broadcastChan <- serveStr
+
+		}
 		// then await next message
 	}
 }
 
-func broadcast(manager ConnectionManager, msg []byte) {
-	for i, conn := range manager.connections {
-		writeToConnection(msg, conn)
+func broadcast(manager *ConnectionManager, msg []byte) {
+	for _, client := range manager.clients {
+		writeToConnection(msg, client.connection)		
 	}
+}
+
+func local(manager *ConnectionManager, room string, msg []byte) {
+	for _, client := range manager.clients {
+		if client.room == room {
+			writeToConnection(msg, client.connection)
+		}
+	}
+}
+
+func pm(manager *ConnectionManager, id int, msg []byte) {
+	conn := manager.clients[id].connection
+	writeToConnection(msg, conn)
 }
 
 func writeToConnection(message []byte, connection *websocket.Conn) {
@@ -54,7 +150,7 @@ func writeToConnection(message []byte, connection *websocket.Conn) {
 
 }
 
-func monitorWrites(manager ConnectionManager) {
+func monitorWrites(manager *ConnectionManager) {
 	log.Println("Starting goroutine monitorWrites")
 	for {
 		message, ok := <-manager.broadcastChan
@@ -62,23 +158,30 @@ func monitorWrites(manager ConnectionManager) {
 			// broadcast "close" to all clients
 			return
 		}
-		broadcast(manager, message)
+		var msg ServerMessage
+		json.Unmarshal(message, &msg)
+		log.Println(msg)
+		if msg.MsgType == "pm" {
+			connId, _ := strconv.Atoi(msg.Data["id"])
+			pm(manager, connId, message)
+		} else if msg.MsgType == "local" {
+			local(manager, msg.Data["room"], message)	
+		} else if msg.MsgType == "broadcast" {
+			broadcast(manager, message)
+		}
 	}
 }
 
-func serveHome(w http.ResponseWriter, r *http.Request) {
-	log.Println(r.URL)
-	if r.URL.Path != "/" {
-		http.Error(w, "Not found", http.StatusNotFound)
-		return
+func servePage(page string) func(http.ResponseWriter, *http.Request) {
+	return func(w http.ResponseWriter, r *http.Request) {
+		log.Println(r.URL)
+		if r.Method != http.MethodGet {
+			http.Error(w, "Method not allowed", http.StatusMethodNotAllowed)
+			return
+		}
+		http.ServeFile(w, r, page)
 	}
-	if r.Method != http.MethodGet {
-		http.Error(w, "Method not allowed", http.StatusMethodNotAllowed)
-		return
-	}
-	http.ServeFile(w, r, "index.html")
 }
-
 
 func serve(manager *ConnectionManager, writer http.ResponseWriter, request *http.Request) {
 	conn, err := upgrader.Upgrade(writer, request, nil)
@@ -86,10 +189,16 @@ func serve(manager *ConnectionManager, writer http.ResponseWriter, request *http
 		log.Println(err)
 		return
 	}
-	manager.connections[manager.nextId] = conn
+	manager.clients[manager.nextClient] = &Client{
+		id: manager.nextClient,
+		connection: conn,
+		username: "",
+		room: "",	
+	}
+	manager.connections[manager.nextClient] = conn
 	// Reads and writes need to be two separate goroutines as they're both blocking
-	go monitorReads(*manager, manager.nextId)
-	manager.nextId += 1
+	go monitorReads(manager, manager.nextClient)
+	manager.nextClient += 1
 }
 
 func main() {
@@ -102,20 +211,16 @@ func main() {
 	// server responds with a 101 (change protocol)
 	// - and registers client / connection
 	// - the library handles this, but likely relevant for re-implementing in C
-	
-	manager := ConnectionManager{
-		make(map[int]*websocket.Conn),
-		0,
-		make(chan []byte, 256),
-	}
 
+	manager := makeConnectionManager()
 	log.Println("Starting websockets server...")
 	go monitorWrites(manager)
 
-	http.HandleFunc("/", serveHome)
+	http.HandleFunc("/", servePage("index.html"))
+	http.HandleFunc("/chat", servePage("chat.html"))
 
 	http.HandleFunc("/ws", func(writer http.ResponseWriter, request *http.Request) {
-		serve(&manager, writer, request)
+		serve(manager, writer, request)
 		// setup the websocket
 	})
 

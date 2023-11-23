@@ -4,76 +4,89 @@
 <head>
 	<meta charset="utf-8">
 	<meta name="viewport" content="width=device-width, initial-scale=1">
-	<title></title>
-	<script>
-		const endpoint = "localhost:8080/ws"
-		const ws = new WebSocket("ws://" + endpoint)
-
-		const onReceiveMessage = (event) => {
-			const chatArea = document.querySelector("#chat")
-			message = event.data
-			chatArea.value += `Anon: ${message}\n`
-		}
-
-		const onSendMessage = (ev) => {
-			ev.preventDefault()
-			ev.stopPropagation()
-			const input = document.querySelector("#msgbox")
-			const chatArea = document.querySelector("#chat")
-
-			const message = input.value
-			ws.send(message)
-			input.value = ""
-			return false
-		}
-
-		window.addEventListener("load", () => {
-			const form = document.querySelector("#sendmessage")
-			form.addEventListener("submit", onSendMessage)
-		})
-
-		ws.addEventListener("message", onReceiveMessage)
-	</script>
 	<style>
-		html,
 		body {
-			margin: 0;
+			font-family: sans-serif;
+			background-color: #EEEEEE;	
+		}
+
+		.w-view {
+			width: 100vw;
+		}
+
+		.h-view {
+			height: 100vh;
+		}
+
+		.nopad {
 			border: 0;
+			margin: 0;
+			padding: 0;
+		}
+
+		.flex {
+			display: flex;
+		}
+
+		.flex-col {
+			flex-direction: column;
+		}
+
+		.flex-center {
+			justify-content: center;
+		}
+
+		.cross-center {
+			align-items: center;
+		}
+
+
+		.border {
+			border: 2px solid black;
+		}
+
+		.bg-white {
+			background-color: #FFFFFF;
+		}
+
+		.bg-magic {
+			background-color: #FF00FF;
+		}
+		.w-100 {
 			width: 100%;
 		}
-
-		body {
-			display: flex;
-			justify-content: center;
-			height: 100vh;
+		.w-50 {
+			width: 50%;
+		}
+		.h-100 {
+			height: 100%;
+		}
+		.h-50 {
+			height: 50%;
+		}
+		.pad {
 			padding: 1rem;
 		}
-
-		.container {
-			width: 66%;
-			display: flex;
-			flex-direction: column;
-			height: 90%;
-			gap: 1rem;
-		}
-
-		#sendmessage {
-			display: flex;
+		.gap-2 {
 			gap: 1rem;
 		}
 	</style>
+	<title></title>
 </head>
 
-<body>
-	<!-- i.e. a container -->
-	<div class="container">
-		<textarea id="chat" rows="" cols="" style="flex-grow: 1; width: 100%;" readonly></textarea>
-		<form id="sendmessage">
-			<input type="text" name="" id="msgbox" value="" style="width: 100%;">
-			<input type="submit"></input>
-		</form>
-
-	</div>
+<body class="w-view h-view nopad flex flex-center cross-center">
+	<form class="border w-50 flex flex-col pad gap-2 bg-white" action="/chat" method="get">
+		<div class="flex flex-col">
+		<label for="username">Username</label>
+		<input id="username" name="user" placeholder="John Smith" type="text" />
+		</div>
+		<div class="flex flex-col">
+		<label for="room">Room</label>
+		<!-- Make this auto-populate later. For now it's fine. -->
+		<input id="room" name="room" placeholder="genchat" type="text" />
+		</div>
+		<input type="submit" />
+	</form>
 </body>
 
 </html>
