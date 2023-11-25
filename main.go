@@ -25,13 +25,6 @@ type Client struct {
 	room       string
 }
 
-type Room struct {
-	id            int
-	name          string
-	broadcastChan chan []byte
-	// each Room needs a monitorWrites method
-}
-
 type ClientMessage struct {
 	MsgType string
 	Data     map[string]string
@@ -45,21 +38,15 @@ type ServerMessage struct {
 type ConnectionManager struct {
 	// monitor clients and direct writes to the appropriate room(s)
 	clients       map[int]*Client
-	connections   map[int]*websocket.Conn
 	nextClient    int
 	broadcastChan chan []byte
-	rooms         map[int]*Room
-	nextRoom      int
-}
+	}
 
 func makeConnectionManager() *ConnectionManager {
 	return &ConnectionManager{
 		make(map[int]*Client),
-		make(map[int]*websocket.Conn),
 		0,
 		make(chan []byte, 256),
-		make(map[int]*Room),
-		0,
 	}
 }
 
@@ -68,7 +55,7 @@ func monitorReads(manager *ConnectionManager, connId int) {
 
 	// on receive, broadcast it to all connections
 	for {
-		_, message, err := manager.connections[connId].ReadMessage()
+		_, message, err := manager.clients[connId].connection.ReadMessage()
 		if err != nil {
 			break
 		}
@@ -112,6 +99,26 @@ func monitorReads(manager *ConnectionManager, connId int) {
 			}
 			serveStr, _ := json.Marshal(serve)
 			manager.broadcastChan <- serveStr
+
+		} else if msgObj.MsgType == "listRooms" {
+			rooms := map[string]struct{}{}
+			for _, client := range manager.clients {
+				rooms[client.room] = struct{}{}
+			}
+			var roomNames []string
+			for rn := range rooms {
+				roomNames = append(roomNames,rn)
+			}
+			roomStr, _ := json.Marshal(roomNames)
+			serve := ServerMessage{
+				MsgType: "roomInfo",
+				Data: map[string]string {
+					"id": fmt.Sprint(connId), 
+					"rooms": string(roomStr), 
+				},
+			}
+			toSend, _ := json.Marshal(serve)
+			manager.broadcastChan <- toSend
 
 		}
 		// then await next message
@@ -161,7 +168,7 @@ func monitorWrites(manager *ConnectionManager) {
 		var msg ServerMessage
 		json.Unmarshal(message, &msg)
 		log.Println(msg)
-		if msg.MsgType == "pm" {
+		if msg.MsgType == "pm" || msg.MsgType == "roomInfo" {
 			connId, _ := strconv.Atoi(msg.Data["id"])
 			pm(manager, connId, message)
 		} else if msg.MsgType == "local" {
@@ -195,7 +202,6 @@ func serve(manager *ConnectionManager, writer http.ResponseWriter, request *http
 		username: "",
 		room: "",	
 	}
-	manager.connections[manager.nextClient] = conn
 	// Reads and writes need to be two separate goroutines as they're both blocking
 	go monitorReads(manager, manager.nextClient)
 	manager.nextClient += 1
@@ -210,7 +216,7 @@ func main() {
 	// client requests ws via an http route
 	// server responds with a 101 (change protocol)
 	// - and registers client / connection
-	// - the library handles this, but likely relevant for re-implementing in C
+	// - the library handles this, but likely relevant for re-implementing in C if needed
 
 	manager := makeConnectionManager()
 	log.Println("Starting websockets server...")

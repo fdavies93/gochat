@@ -11,8 +11,9 @@
 		const ws = new WebSocket("ws://" + endpoint)
 		const params = new URLSearchParams(window.location.search)
 
-		const username = params.get("user")
-		const room = params.get("room")
+		let username = params.get("user")
+		let room = params.get("room")
+		let roomsSetup = false
 
 		const appendMessage = (msg) => {
 			const messageArea = document.querySelector("[data-message-area]")
@@ -27,9 +28,14 @@
 		}
 
 		const onReceiveMessage = (event) => {
-			message = event.data
+			const message = event.data
 			const msgObj = JSON.parse(message)
-			appendMessage(msgObj)
+			if (
+				msgObj.MsgType === "pm" ||
+				msgObj.MsgType === "broadcast" ||
+				msgObj.MsgType === "local"
+			) { appendMessage(msgObj) }
+			else if (msgObj.MsgType === "roomInfo") setupRooms(msgObj)  
 		}
 
 		const onSendMessage = (ev) => {
@@ -51,21 +57,68 @@
 		}
 
 		const onOpen = (event) => {
-			const params = new URLSearchParams(window.location.search)
 			const header = {
 				"msgType": "setup",
 				"data": {
 					"user": username,
 					"room": room
-
 				}
 			}
 			ws.send(JSON.stringify(header))
 		}
 
+		const setupName = () => {
+			const nameDiv = document.querySelector("[data-username]")
+			nameDiv.innerText = username 
+		}
+
+		const getRooms = () => {
+			const infoMsg = {
+				"msgType": "listRooms",
+				"data": {}
+			}
+			ws.send(JSON.stringify(infoMsg))
+		}
+
+		const setupRooms = (msgObj) => {
+			const rooms = JSON.parse(msgObj.Data.rooms)	
+			const selectBox = document.querySelector("[data-room-selector]")
+			selectBox.innerHTML = ""	
+			for (r of rooms) {
+				let append = ''
+				if (room === r) append = "selected" 
+				selectBox.insertAdjacentHTML('beforeend', `<option value='${r}' ${append}>${r}</option>`)	
+			}
+			selectBox.insertAdjacentHTML('beforeend', `<option value='newChannel'>Create new channel...</option>`)
+			if (!roomsSetup) {
+				roomsSetup = true
+				selectBox.addEventListener('change', (ev) => {
+					
+					if (ev.target.value === "newChannel") {
+						let r = window.prompt("Enter the name of the new room.","gen")
+						if (r === null || r === "") return
+						room = r
+					}
+					else room = ev.target.value
+	
+					const header = {
+						"msgType": "setup",
+						"data": {
+							"user": username,
+							"room": room
+						}	
+					}
+				ws.send(JSON.stringify(header))
+				})
+			}
+		}
+
 		window.addEventListener("load", () => {
 			const form = document.querySelector("#sendmessage")
 			form.addEventListener("submit", onSendMessage)
+			setupName()
+			getRooms()
+			window.setInterval(getRooms, 10 * 1000)
 		})
 
 		ws.addEventListener("message", onReceiveMessage)
@@ -76,6 +129,15 @@
 <body>
 	<!-- i.e. a container -->
 	<div class="w-full flex flex-col h-screen items-center">
+		<!-- Header -->
+		<div class="w-full flex justify-between border-black border-b-2 p-4 bg-gray-200">
+			<div class="text-xl" data-username>
+				
+			</div>
+
+			<select data-room-selector>
+			</select>
+		</div>
 		<!-- Message area -->
 		<div data-message-area class="w-full h-full overflow-scroll px-2">
 		</div>
