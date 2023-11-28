@@ -3,12 +3,12 @@ package main
 import (
 	"encoding/json"
 	"flag"
+	"fmt"
 	"github.com/gorilla/websocket"
 	"log"
 	"net/http"
-	"time"
-	"fmt"
 	"strconv"
+	"time"
 )
 
 var addr = flag.String("addr", ":8080", "The inbound http port")
@@ -19,7 +19,7 @@ var upgrader = websocket.Upgrader{
 }
 
 type Client struct {
-	id int
+	id         int
 	connection *websocket.Conn
 	username   string
 	room       string
@@ -27,12 +27,12 @@ type Client struct {
 
 type ClientMessage struct {
 	MsgType string
-	Data     map[string]string
+	Data    map[string]string
 }
 
 type ServerMessage struct {
 	MsgType string
-	Data map[string]string
+	Data    map[string]string
 }
 
 type ConnectionManager struct {
@@ -40,7 +40,7 @@ type ConnectionManager struct {
 	clients       map[int]*Client
 	nextClient    int
 	broadcastChan chan []byte
-	}
+}
 
 func makeConnectionManager() *ConnectionManager {
 	return &ConnectionManager{
@@ -48,6 +48,72 @@ func makeConnectionManager() *ConnectionManager {
 		0,
 		make(chan []byte, 256),
 	}
+}
+
+func onSetupMessage(manager *ConnectionManager, connId int, msgObj ClientMessage) {
+
+	// do setup stuff
+	manager.clients[connId].username = msgObj.Data["user"]
+	manager.clients[connId].room = msgObj.Data["room"]
+
+	messageData := ServerMessage{
+		MsgType: "pm",
+		Data: map[string]string{
+			"id":       fmt.Sprint(connId),
+			"sender":   "SERVER",
+			"senderId": "-1",
+			"message":  fmt.Sprintf("Welcome to #%s, %s!", msgObj.Data["room"], msgObj.Data["user"]),
+		},
+	}
+
+	toSend, _ := json.Marshal(messageData)
+
+	manager.broadcastChan <- toSend
+}
+
+func onMessageMessage(manager *ConnectionManager, connId int, msgObj ClientMessage) {
+	// broadcast
+	log.Println("Message received")
+
+	serve := ServerMessage{
+		MsgType: "local",
+		Data: map[string]string{
+			"room":     msgObj.Data["room"],
+			"sender":   msgObj.Data["sender"],
+			"senderId": fmt.Sprint(connId),
+			"message":  msgObj.Data["message"],
+		},
+	}
+	serveStr, _ := json.Marshal(serve)
+	manager.broadcastChan <- serveStr
+
+}
+
+func onListRoomsMessage(manager *ConnectionManager, connId int, msgObj ClientMessage) {
+	rooms := map[string]struct{}{}
+	for _, client := range manager.clients {
+		rooms[client.room] = struct{}{}
+	}
+	var roomNames []string
+	for rn := range rooms {
+		roomNames = append(roomNames, rn)
+	}
+	roomStr, _ := json.Marshal(roomNames)
+	serve := ServerMessage{
+		MsgType: "roomInfo",
+		Data: map[string]string{
+			"id":    fmt.Sprint(connId),
+			"rooms": string(roomStr),
+		},
+	}
+	toSend, _ := json.Marshal(serve)
+	manager.broadcastChan <- toSend
+
+}
+
+func onListUsersMessage(manager *ConnectionManager, connId int, msgObj ClientMessage) {
+	users := map[string]int{}
+	users["a"] = 1
 }
 
 func monitorReads(manager *ConnectionManager, connId int) {
@@ -68,58 +134,13 @@ func monitorReads(manager *ConnectionManager, connId int) {
 		log.Println(msgObj)
 		// could implement UnmarshalJSON interface to make this unpack to nicer structs
 		if msgObj.MsgType == "setup" {
-			// do setup stuff
-			manager.clients[connId].username = msgObj.Data["user"]
-			manager.clients[connId].room = msgObj.Data["room"]
-
-			messageData := ServerMessage{
-				MsgType: "pm",
-				Data: map[string]string {
-					"id": fmt.Sprint(connId),
-					"sender": "SERVER",
-					"message": fmt.Sprintf("Welcome to #%s, %s!", msgObj.Data["room"], msgObj.Data["user"]),
-				},
-			}
-
-			toSend, _ := json.Marshal(messageData)
-
-			manager.broadcastChan <- toSend
-
+			onSetupMessage(manager, connId, msgObj)
 		} else if msgObj.MsgType == "message" {
-			// broadcast
-			log.Println("Message received") 
-			
-			serve := ServerMessage{
-				MsgType: "local",
-				Data: map[string]string {
-					"room": msgObj.Data["room"],
-					"sender": msgObj.Data["sender"],
-					"message": msgObj.Data["message"],
-				},
-			}
-			serveStr, _ := json.Marshal(serve)
-			manager.broadcastChan <- serveStr
-
+			onMessageMessage(manager, connId, msgObj)
 		} else if msgObj.MsgType == "listRooms" {
-			rooms := map[string]struct{}{}
-			for _, client := range manager.clients {
-				rooms[client.room] = struct{}{}
-			}
-			var roomNames []string
-			for rn := range rooms {
-				roomNames = append(roomNames,rn)
-			}
-			roomStr, _ := json.Marshal(roomNames)
-			serve := ServerMessage{
-				MsgType: "roomInfo",
-				Data: map[string]string {
-					"id": fmt.Sprint(connId), 
-					"rooms": string(roomStr), 
-				},
-			}
-			toSend, _ := json.Marshal(serve)
-			manager.broadcastChan <- toSend
-
+			onListRoomsMessage(manager, connId, msgObj)
+		} else if msgObj.MsgType == "listUsers" {
+			onListUsersMessage(manager, connId, msgObj)
 		}
 		// then await next message
 	}
@@ -127,7 +148,7 @@ func monitorReads(manager *ConnectionManager, connId int) {
 
 func broadcast(manager *ConnectionManager, msg []byte) {
 	for _, client := range manager.clients {
-		writeToConnection(msg, client.connection)		
+		writeToConnection(msg, client.connection)
 	}
 }
 
@@ -172,7 +193,7 @@ func monitorWrites(manager *ConnectionManager) {
 			connId, _ := strconv.Atoi(msg.Data["id"])
 			pm(manager, connId, message)
 		} else if msg.MsgType == "local" {
-			local(manager, msg.Data["room"], message)	
+			local(manager, msg.Data["room"], message)
 		} else if msg.MsgType == "broadcast" {
 			broadcast(manager, message)
 		}
@@ -197,10 +218,10 @@ func serve(manager *ConnectionManager, writer http.ResponseWriter, request *http
 		return
 	}
 	manager.clients[manager.nextClient] = &Client{
-		id: manager.nextClient,
+		id:         manager.nextClient,
 		connection: conn,
-		username: "",
-		room: "",	
+		username:   "",
+		room:       "",
 	}
 	// Reads and writes need to be two separate goroutines as they're both blocking
 	go monitorReads(manager, manager.nextClient)
