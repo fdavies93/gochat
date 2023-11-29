@@ -19,7 +19,7 @@
 			const messageArea = document.querySelector("[data-message-area]")
 			const newMessage = `
 				<div class="flex flex-col w-full">
-					<div class="text-blue-500">${msg.Data.sender}</div>
+				<div class="text-blue-500">${msg.Data.sender} [${msg.Data.senderId}]</div>
 					<div>${msg.Data.message}</div>
 				</div>
 			`

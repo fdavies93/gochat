@@ -23,6 +23,7 @@ type Client struct {
 	connection *websocket.Conn
 	username   string
 	room       string
+	SendChan chan[] byte
 }
 
 type ClientMessage struct {
@@ -67,7 +68,6 @@ func onSetupMessage(manager *ConnectionManager, connId int, msgObj ClientMessage
 	}
 
 	toSend, _ := json.Marshal(messageData)
-
 	manager.broadcastChan <- toSend
 }
 
@@ -148,21 +148,21 @@ func monitorReads(manager *ConnectionManager, connId int) {
 
 func broadcast(manager *ConnectionManager, msg []byte) {
 	for _, client := range manager.clients {
-		writeToConnection(msg, client.connection)
+		client.SendChan <- msg
 	}
 }
 
 func local(manager *ConnectionManager, room string, msg []byte) {
 	for _, client := range manager.clients {
 		if client.room == room {
-			writeToConnection(msg, client.connection)
+			client.SendChan <- msg
 		}
 	}
 }
 
 func pm(manager *ConnectionManager, id int, msg []byte) {
-	conn := manager.clients[id].connection
-	writeToConnection(msg, conn)
+	client := manager.clients[id]
+	client.SendChan <- msg
 }
 
 func writeToConnection(message []byte, connection *websocket.Conn) {
@@ -190,13 +190,26 @@ func monitorWrites(manager *ConnectionManager) {
 		json.Unmarshal(message, &msg)
 		log.Println(msg)
 		if msg.MsgType == "pm" || msg.MsgType == "roomInfo" {
-			connId, _ := strconv.Atoi(msg.Data["id"])
-			pm(manager, connId, message)
+			receiveId, _ := strconv.Atoi(msg.Data["id"])
+			pm(manager, receiveId, message)
 		} else if msg.MsgType == "local" {
 			local(manager, msg.Data["room"], message)
 		} else if msg.MsgType == "broadcast" {
 			broadcast(manager, message)
 		}
+	}
+}
+
+func monitorClientWrites(manager *ConnectionManager, clientId int) {
+	client := manager.clients[clientId]
+	log.Println("Starting goroutine monitorClientWrites")
+	for {
+		message, ok := <-client.SendChan
+		if !ok {
+			
+			return
+		}
+		writeToConnection(message, client.connection)
 	}
 }
 
@@ -222,9 +235,11 @@ func serve(manager *ConnectionManager, writer http.ResponseWriter, request *http
 		connection: conn,
 		username:   "",
 		room:       "",
+		SendChan: make(chan []byte, 256),
 	}
 	// Reads and writes need to be two separate goroutines as they're both blocking
 	go monitorReads(manager, manager.nextClient)
+	go monitorClientWrites(manager, manager.nextClient)
 	manager.nextClient += 1
 }
 
