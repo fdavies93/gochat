@@ -23,7 +23,7 @@ type Client struct {
 	connection *websocket.Conn
 	username   string
 	room       string
-	SendChan chan[] byte
+	SendChan   chan []byte
 }
 
 type ClientMessage struct {
@@ -123,6 +123,8 @@ func monitorReads(manager *ConnectionManager, connId int) {
 	for {
 		_, message, err := manager.clients[connId].connection.ReadMessage()
 		if err != nil {
+			log.Println("Ending monitorReads for client", connId)
+			delete(manager.clients, connId)
 			break
 		}
 		var msgObj ClientMessage
@@ -165,17 +167,31 @@ func pm(manager *ConnectionManager, id int, msg []byte) {
 	client.SendChan <- msg
 }
 
-func writeToConnection(message []byte, connection *websocket.Conn) {
+func writeToConnection(message []byte, connection *websocket.Conn) error {
 	w, err := connection.NextWriter(websocket.TextMessage)
 	if err != nil {
 		// raise error? close channel?
-		return
+		log.Println("Closing connection")
+		return err
 	}
 	w.Write(message)
 	if err := w.Close(); err != nil {
-		return
+		return err
 	}
+	return nil
+}
 
+func healthCheck(manager *ConnectionManager) {
+	healthMsg := ServerMessage{
+		MsgType: "healthCheck",
+		Data:    map[string]string{},
+	}
+	healthBytes, _ := json.Marshal(healthMsg)
+	for {
+		log.Println("Health check!")
+		time.Sleep(10 * time.Second)
+		broadcast(manager, healthBytes)
+	}
 }
 
 func monitorWrites(manager *ConnectionManager) {
@@ -206,10 +222,14 @@ func monitorClientWrites(manager *ConnectionManager, clientId int) {
 	for {
 		message, ok := <-client.SendChan
 		if !ok {
-			
+			log.Println("Closing socket", clientId)
 			return
 		}
-		writeToConnection(message, client.connection)
+		err := writeToConnection(message, client.connection)
+		if err != nil {
+			log.Println("Closing socket", clientId)
+			return
+		}
 	}
 }
 
@@ -235,7 +255,7 @@ func serve(manager *ConnectionManager, writer http.ResponseWriter, request *http
 		connection: conn,
 		username:   "",
 		room:       "",
-		SendChan: make(chan []byte, 256),
+		SendChan:   make(chan []byte, 256),
 	}
 	// Reads and writes need to be two separate goroutines as they're both blocking
 	go monitorReads(manager, manager.nextClient)
@@ -257,10 +277,11 @@ func main() {
 	manager := makeConnectionManager()
 	log.Println("Starting websockets server...")
 	go monitorWrites(manager)
+	go healthCheck(manager)
 
 	http.HandleFunc("/", servePage("index.html"))
-	http.HandleFunc("/chat", servePage("chat.html"))
-
+	http.HandleFunc("/chat", servePage("chat.html"))	
+	http.Handle("/static/", http.StripPrefix("/static/",http.FileServer(http.Dir("./static"))))	
 	http.HandleFunc("/ws", func(writer http.ResponseWriter, request *http.Request) {
 		serve(manager, writer, request)
 		// setup the websocket

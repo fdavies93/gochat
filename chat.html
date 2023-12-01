@@ -6,124 +6,7 @@
 	<meta name="viewport" content="width=device-width, initial-scale=1">
 	<title></title>
 	<script src="https://cdn.tailwindcss.com"></script>
-	<script>
-		const endpoint = "localhost:8080/ws"
-		const ws = new WebSocket("ws://" + endpoint)
-		const params = new URLSearchParams(window.location.search)
-
-		let username = params.get("user")
-		let room = params.get("room")
-		let roomsSetup = false
-
-		const appendMessage = (msg) => {
-			const messageArea = document.querySelector("[data-message-area]")
-			const newMessage = `
-				<div class="flex flex-col w-full">
-				<div class="text-blue-500">${msg.Data.sender} [${msg.Data.senderId}]</div>
-					<div>${msg.Data.message}</div>
-				</div>
-			`
-			messageArea.insertAdjacentHTML("beforeend", newMessage)
-			messageArea.scrollTop = messageArea.scrollHeight
-		}
-
-		const onReceiveMessage = (event) => {
-			const message = event.data
-			const msgObj = JSON.parse(message)
-			if (
-				msgObj.MsgType === "pm" ||
-				msgObj.MsgType === "broadcast" ||
-				msgObj.MsgType === "local"
-			) { appendMessage(msgObj) }
-			else if (msgObj.MsgType === "roomInfo") setupRooms(msgObj)  
-		}
-
-		const onSendMessage = (ev) => {
-			ev.preventDefault()
-			ev.stopPropagation()
-			const input = document.querySelector("#msgbox")
-
-			const message = JSON.stringify({
-				"MsgType": "message",
-				"Data": {
-					"sender": username,
-					"room": room,
-					"message": input.value
-				}
-			})
-			ws.send(message)
-			input.value = ""
-			return false
-		}
-
-		const onOpen = (event) => {
-			const header = {
-				"msgType": "setup",
-				"data": {
-					"user": username,
-					"room": room
-				}
-			}
-			ws.send(JSON.stringify(header))
-		}
-
-		const setupName = () => {
-			const nameDiv = document.querySelector("[data-username]")
-			nameDiv.innerText = username 
-		}
-
-		const getRooms = () => {
-			const infoMsg = {
-				"msgType": "listRooms",
-				"data": {}
-			}
-			ws.send(JSON.stringify(infoMsg))
-		}
-
-		const setupRooms = (msgObj) => {
-			const rooms = JSON.parse(msgObj.Data.rooms)	
-			const selectBox = document.querySelector("[data-room-selector]")
-			selectBox.innerHTML = ""	
-			for (r of rooms) {
-				let append = ''
-				if (room === r) append = "selected" 
-				selectBox.insertAdjacentHTML('beforeend', `<option value='${r}' ${append}>${r}</option>`)	
-			}
-			selectBox.insertAdjacentHTML('beforeend', `<option value='newChannel'>Create new channel...</option>`)
-			if (!roomsSetup) {
-				roomsSetup = true
-				selectBox.addEventListener('change', (ev) => {
-					
-					if (ev.target.value === "newChannel") {
-						let r = window.prompt("Enter the name of the new room.","gen")
-						if (r === null || r === "") return
-						room = r
-					}
-					else room = ev.target.value
-	
-					const header = {
-						"msgType": "setup",
-						"data": {
-							"user": username,
-							"room": room
-						}	
-					}
-				ws.send(JSON.stringify(header))
-				})
-			}
-		}
-
-		window.addEventListener("load", () => {
-			const form = document.querySelector("#sendmessage")
-			form.addEventListener("submit", onSendMessage)
-			setupName()
-			getRooms()
-			window.setInterval(getRooms, 10 * 1000)
-		})
-
-		ws.addEventListener("message", onReceiveMessage)
-		ws.addEventListener("open", onOpen)
-	</script>
+	<script src="/static/chat.js"></script>
 </head>
 
 <body>
@@ -132,17 +15,33 @@
 		<!-- Header -->
 		<div class="w-full flex justify-between border-black border-b-2 p-4 bg-gray-200">
 			<div class="text-xl" data-username>
-				
+
 			</div>
 
-			<select data-room-selector>
-			</select>
+			<span class="flex gap-2">
+				<select data-room-selector>
+				</select>
+
+				<input id="show-user-list" type="checkbox" class="hidden peer">
+				<label for="show-user-list" class="py-1 px-2 bg-black
+					rounded-lg
+				text-white peer-checked:bg-white
+				peer-checked:text-black cursor-pointer">users</label>
+			</span>
 		</div>
 		<!-- Message area -->
-		<div data-message-area class="w-full h-full overflow-scroll px-2">
+		<div class="w-full h-full flex">
+			<div data-message-area class="w-full h-full overflow-scroll px-2">
+			</div>
+			<div data-user-list class="w-80 h-full
+				overflow-scroll hidden
+				px-2 flex flex-col bg-gray-200 border-l-2
+				border-black">
+			</div>
 		</div>
 		<form class="w-full flex gap-4 bg-gray-200 border-t-2 border-black p-4" id="sendmessage">
-			<input type="text" name="" id="msgbox" class="py-1 px-2 border-black border-2 rounded-lg" value="" style="width: 100%;">
+			<input type="text" name="" id="msgbox" class="py-1 px-2 border-black border-2 rounded-lg"
+				value="" style="width: 100%;">
 			<input type="submit" class="bg-black text-white rounded-lg px-2 py-1"></input>
 		</form>
 

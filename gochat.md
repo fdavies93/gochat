@@ -14,7 +14,7 @@ Conplete by 2023-12-3 with README and docker packaging.
 - [ ] Allow changing username
 - [ ] Allow listing other users (?)
 - [ ] Allow PMs to other users
-- [ ] Ensure dropped connections are cleaned up by incorporating pings / timeouts
+- [x] Ensure dropped connections are cleaned up by incorporating pings / timeouts
 - [x] Parallelised writes to clients
     - If not implemented, one client not responding can hold up the whole
       server for a stupidly long amount of time
