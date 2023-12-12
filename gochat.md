@@ -2,7 +2,7 @@
 
 ## Timeline
 
-Conplete by 2023-12-3 with README and docker packaging.
+Conplete by 2023-12-3 with README and docker packaging for easy deploy.
 
 ## Complete
 

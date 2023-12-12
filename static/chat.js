@@ -26,7 +26,8 @@ const onReceiveMessage = (event) => {
 		msgObj.MsgType === "broadcast" ||
 		msgObj.MsgType === "local"
 	) { appendMessage(msgObj) }
-	else if (msgObj.MsgType === "roomInfo") setupRooms(msgObj)
+	else if (msgObj.MsgType === "status") setupRooms(msgObj)
+	// health check is discarded
 }
 
 const onSendMessage = (ev) => {

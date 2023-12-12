@@ -91,19 +91,23 @@ func onMessageMessage(manager *ConnectionManager, connId int, msgObj ClientMessa
 
 func onListRoomsMessage(manager *ConnectionManager, connId int, msgObj ClientMessage) {
 	rooms := map[string]struct{}{}
-	for _, client := range manager.clients {
+	users := map[int]string{}
+	for id, client := range manager.clients {
 		rooms[client.room] = struct{}{}
+		users[id] = client.username
 	}
 	var roomNames []string
 	for rn := range rooms {
 		roomNames = append(roomNames, rn)
 	}
 	roomStr, _ := json.Marshal(roomNames)
+	userStr, _ := json.Marshal(users)
 	serve := ServerMessage{
-		MsgType: "roomInfo",
+		MsgType: "status",
 		Data: map[string]string{
 			"id":    fmt.Sprint(connId),
 			"rooms": string(roomStr),
+			"users": string(userStr),
 		},
 	}
 	toSend, _ := json.Marshal(serve)
